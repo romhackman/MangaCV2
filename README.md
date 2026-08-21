@@ -80,14 +80,15 @@ Une structure attendue ressemble à ceci :
 
 ```text
 .
-├── main.cpp
-├── domaine.cpp
-├── sitemap.cpp
-├── scraper.cpp
-├── gui.cpp
-├── chapter.cpp
-├── download.cpp
-├── pdf.cpp
+├── src/
+│   ├── main.cpp
+│   ├── domaine.cpp
+│   ├── sitemap.cpp
+│   ├── scraper.cpp
+│   ├── gui.cpp
+│   ├── chapter.cpp
+│   ├── download.cpp
+│   └── pdf.cpp
 │
 ├── domaine.exe
 ├── preprocess.exe
@@ -95,7 +96,7 @@ Une structure attendue ressemble à ceci :
 ├── chapter.exe
 ├── scraper.exe
 ├── download.exe
-└── pdf.exe
+├── pdf.exe
 │
 ├── data/
 │   ├── domaine.json
