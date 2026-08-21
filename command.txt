@@ -1,0 +1,15 @@
+g++ src\main.cpp -o MangaCV2
+
+g++ -std=c++17 -O2 -Iinclude src\scrape_domaine.cpp -Llib -lcurl -o domaine
+
+g++ -std=c++17 src\sitemap.cpp -I.\include -L.\lib -lcurl -o preprocess
+
+g++ -std=c++17 -O2 -Iinclude src\gui.cpp -Llib -o gui -lmingw32 -lSDL2 -lSDL2_ttf
+
+g++ -std=c++17 -O2 -Iinclude src\scraper.cpp -Llib -lcurl -o scraper
+
+g++ -std=c++17 -O2 -Iinclude src\chapter.cpp -Llib -lSDL2main -lSDL2_ttf -lSDL2 -o chapter
+
+g++ -O2 -Iinclude src\download.cpp -Llib -lcurl -o download
+
+g++ -O2 -Iinclude src\pdf.cpp -Llib -lhpdf -o pdf.exe 
