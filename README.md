@@ -1,930 +1,266 @@
-# Anime-Sama Downloader
+# Manga Downloader
 
-Application C++ sous Windows permettant de récupérer les informations d'un catalogue, de rechercher les scans disponibles, de sélectionner des chapitres, de télécharger les images puis de générer des PDF.
+Application Windows avec **une seule fenêtre** pour rechercher un manga, choisir ses chapitres, les télécharger et les convertir en PDF. Aucune console n'est visible : tout se fait dans l'interface.
 
-Le projet est organisé autour de plusieurs exécutables qui communiquent principalement grâce à des fichiers JSON dans le dossier `data/`.
-
-> **Plateforme actuelle : Windows**
->
-> Plusieurs parties du projet utilisent directement l'API Windows (`CreateProcessA`, `STARTUPINFOA`, `PROCESS_INFORMATION`, `WaitForSingleObject`, etc.).
+> Version : v0.1.0
 
 ---
 
-## 📌 Fonctionnement général
+## Sommaire
 
-Le programme complet fonctionne comme une chaîne :
-
-```text
-main.exe
-   │
-   ├── Nettoyage de data/
-   │
-   ▼
-domaine.exe
-   │
-   │  Trouve l'extension actuelle du domaine
-   ▼
-data/domaine.json
-   │
-   ▼
-preprocess.exe
-   │
-   ├── Récupération du sitemap
-   ├── Extraction des URLs
-   ├── Filtrage des URLs catalogue/scan
-   └── Construction de la hiérarchie
-   │
-   ▼
-data/heritage.json
-   │
-   ▼
-gui.exe
-   │
-   ├── Recherche d'un anime
-   ├── Sélection d'un lien de scan
-   └── Lance scraper.exe
-   │
-   ▼
-scraper.exe
-   │
-   ├── Récupère les informations d'un scan
-   └── Génère data/result.json
-   │
-   ▼
-chapter.exe
-   │
-   ├── Lit result.json
-   ├── Affiche les chapitres
-   ├── Permet leur sélection
-   └── Lance download.exe
-   │
-   ▼
-download.exe
-   │
-   ├── Télécharge les images JPG
-   └── Lance pdf.exe
-   │
-   ▼
-pdf.exe
-   │
-   └── Génère les PDF à partir des images
-```
-
-Le lanceur principal exécute actuellement `domaine.exe`, puis `preprocess.exe`, puis `gui.exe`, puis `chapter.exe`, en attendant la fin de chaque programme.
+1. [Utilisation](#1-utilisation)
+2. [Installation](#2-installation)
+3. [Dépannage](#3-dépannage)
+4. [Partie développeur](#4-partie-développeur)
 
 ---
 
-# 📁 Structure du projet
+# 1. Utilisation
 
-Une structure attendue ressemble à ceci :
+## Aperçu du parcours
 
-```text
-.
-├── src/
-│   ├── main.cpp
-│   ├── domaine.cpp
-│   ├── sitemap.cpp
-│   ├── scraper.cpp
-│   ├── gui.cpp
-│   ├── chapter.cpp
-│   ├── download.cpp
-│   └── pdf.cpp
-│
-├── domaine.exe
-├── preprocess.exe
-├── gui.exe
-├── chapter.exe
-├── scraper.exe
-├── download.exe
-├── pdf.exe
-│
-├── data/
-│   ├── domaine.json
-│   ├── heritage.json
-│   ├── result.json
-│   ├── status.json
-│   └── temp/
-│       ├── sitemap_1.xml
-│       ├── all_link.json
-│       └── scan_colecte.json
-│
-└── data/font/
-    └── yoruka.ttf
+```
+Accueil → (Préparation) → Recherche → Chapitres → Téléchargement + PDF → Copie → Terminé
 ```
 
-Les fichiers temporaires utilisés par le module sitemap sont notamment `data/temp/sitemap_1.xml`, `data/temp/all_link.json` et `data/temp/scan_colecte.json`. Le résultat final de cette étape est `data/heritage.json`.
+## Premier lancement
+
+1. Lance `MangaDownloader.exe`.
+2. Vérifie le **dossier de destination** (par défaut : `Documents\Manga`). Clique sur **Changer…** pour en choisir un autre.
+3. Clique sur **Rechercher un manga**.
+4. La base de recherche n'existe pas encore : l'application la crée automatiquement (écran *Préparation*, avec barre de progression). Cette étape n'est refaite que si tu le demandes.
+
+## Rechercher et télécharger
+
+1. **Recherche** : tape le nom du manga puis `Entrée` ou **Rechercher**. La liste défile à la molette.
+2. Clique sur un résultat : l'application récupère la liste des chapitres.
+3. **Chapitres** : coche ceux que tu veux (ou **Tout sélectionner** / **Tout désélectionner**), puis **Télécharger**.
+4. **Téléchargement** : deux barres s'affichent, la progression des chapitres et celle des images du chapitre en cours. Ensuite vient l'étape « Création des PDF ».
+5. **Copie** : les PDF sont copiés dans ton dossier de destination, sous la forme `Destination\Nom du manga\Chapter X.pdf`.
+6. **Terminé** : clique sur **Ouvrir le dossier** ou retourne à l'accueil.
+
+À chaque étape longue, **Annuler** arrête tout proprement.
+
+## Paramètres (écran d'accueil)
+
+| Paramètre | Rôle |
+|---|---|
+| **Dossier de destination** | Où sont copiés les PDF. Modifiable à la main (Ctrl+V pris en charge) ou via **Changer…**. Mémorisé automatiquement. |
+| **Ouvrir le dossier à la fin** | Ouvre l'explorateur quand le téléchargement est terminé. Mémorisé aussi. |
+| **Mettre à jour la base** | Supprime et recrée la base de recherche (utile si des mangas manquent ou si le site a changé d'adresse). |
+| **Vider le cache** | Supprime les fichiers temporaires (voir ci-dessous). Un second clic dans les 3 secondes est demandé pour confirmer. |
+
+### Que fait « Vider le cache » ?
+
+Il supprime `temp/`, `scan/`, `data/temp/`, `data/result.json` et `data/status.json`. Il **conserve** la police et la base de recherche (`data/heritage.json`), donc tu n'as pas à refaire la préparation.
+
+Annuler un téléchargement vide aussi le cache.
+
+## Où sont mes fichiers ?
+
+- Tes PDF : dans le **dossier de destination**.
+- Tes réglages : `settings.json` (à côté de l'exe).
+- Les fichiers de travail : `temp/`, `scan/` et `data/`, dans le dossier de l'application (nettoyés automatiquement).
 
 ---
 
-# ⚙️ Dépendances
+# 2. Installation
 
-## 1. C++ / compilateur
+## Contenu du dossier final
 
-Le projet nécessite un compilateur C++ moderne avec support de :
+```
+dist/
+├── MangaDownloader.exe     ← l'application (à lancer)
+├── domaine.exe             ┐
+├── preprocess.exe          │ programmes lancés en arrière-plan
+├── scraper.exe             │ (ne pas les lancer à la main)
+├── download.exe            │
+├── pdf.exe                 ┘
+├── *.dll                   ← SDL2, SDL2_ttf, libcurl, libhpdf, ...
+└── data/
+    └── font/
+        └── yoruka.ttf      ← police obligatoire
+```
 
-* C++17 minimum recommandé
-* `<filesystem>`
-* `<fstream>`
-* `<vector>`
-* `<string>`
-* `<algorithm>`
-* etc.
+Tous les `.exe` doivent rester **dans le même dossier**.
 
-Le projet utilise `std::filesystem`, notamment pour manipuler les dossiers et fichiers.
+## Compiler
 
-### Compilateur recommandé
+Prérequis : MinGW (g++ avec C++17) et les bibliothèques **SDL2**, **SDL2_ttf**, **libcurl**, **libharu (hpdf)** et **nlohmann/json**.
 
-Sous Windows :
+```bat
+build.bat
+```
 
-* **MinGW-w64 / GCC**
-* ou **Visual Studio / MSVC**
+Le script crée `dist/` avec tous les exécutables. Si g++ ne trouve pas tes bibliothèques, ajoute les options `-I<dossier include>` et `-L<dossier lib>` dans `build.bat`. Ensuite :
+
+1. Copie `yoruka.ttf` dans `dist\data\font\`.
+2. Copie les DLL nécessaires à côté des `.exe`.
+3. Lance `dist\MangaDownloader.exe`.
 
 ---
 
-# 📦 Bibliothèques externes
+# 3. Dépannage
 
-## 2. libcurl
+| Symptôme | Cause probable / solution |
+|---|---|
+| Message « Police introuvable » | `data/font/yoruka.ttf` est absent. |
+| « Impossible de lancer domaine.exe » (ou autre) | Un `.exe` manque dans le dossier ou une DLL est absente. |
+| Échec de la préparation | Pas d'accès à internet, ou le site est indisponible. Réessaie avec **Mettre à jour la base**. |
+| La barre des images reste vide | `setvbuf(stdout, nullptr, _IONBF, 0);` manque dans `download.cpp`. |
+| « Aucun PDF n'a été créé » | Regarde la dernière ligne du journal indiquée dans le message d'erreur. |
+| Un manga n'apparaît pas | Fais **Mettre à jour la base**. |
+| Disque qui se remplit | Clique sur **Vider le cache**. |
 
-**libcurl** est utilisé pour effectuer les requêtes HTTP/HTTPS et télécharger les fichiers.
-
-Elle est utilisée notamment dans :
-
-* `domaine.cpp`
-* `sitemap.cpp`
-* `scraper.cpp`
-* `download.cpp`
-
-Exemple dans `download.cpp` :
-
-```cpp
-#include <curl/curl.h>
-```
-
-Le téléchargement d'image utilise `curl_easy_init()`, `curl_easy_setopt()` puis `curl_easy_perform()`.
-
-### Rôle
-
-```text
-Internet
-   │
-   ▼
-libcurl
-   │
-   ├── GET HTML
-   ├── GET sitemap
-   ├── GET pages de scan
-   └── téléchargement des images
-```
+> Respecte les conditions d'utilisation des sites et les droits d'auteur. Cet outil est prévu pour un usage personnel.
 
 ---
 
-## 3. nlohmann/json
+# 4. Partie développeur
 
-Le projet utilise **nlohmann/json** pour lire et écrire les fichiers JSON.
+## 4.1 Architecture
 
-```cpp
-#include <nlohmann/json.hpp>
-
-using json = nlohmann::json;
+```
+MangaApp/
+├── src/app.cpp          ← interface unique (SDL2) + orchestration
+├── workers/
+│   ├── domaine.cpp      → domaine.exe     (détecte l'extension du domaine)
+│   ├── preprocess.cpp   → preprocess.exe  (construit la base de recherche)
+│   ├── scraper.cpp      → scraper.exe     (liste les chapitres d'un manga)
+│   ├── download.cpp     → download.exe    (télécharge les images)
+│   └── pdf.cpp          → pdf.exe         (images → PDF)
+└── build.bat
 ```
 
-Elle est utilisée dans plusieurs exécutables pour communiquer entre les différents composants.
+Principe : `app.cpp` ne fait **aucun scraping**. Il lance les programmes de `workers/` **cachés**, lit leur sortie standard en direct et met à jour l'interface. Chaque worker reste un programme console indépendant.
 
-Principaux fichiers concernés :
+## 4.2 Enchaînement des workers
 
-```text
-data/domaine.json
-data/heritage.json
-data/result.json
-data/status.json
-data/temp/all_link.json
-data/temp/scan_colecte.json
+```
+domaine.exe      → data/domaine.json
+preprocess.exe   → data/heritage.json          (lit domaine.json)
+scraper.exe -link "<url>"
+                 → data/result.json + data/status.json
+download.exe -all | -chapter [1, 2, 3]
+                 → temp/<Manga>/Chapter N/001.jpg ...
+   └─ lance pdf.exe
+                 → scan/<Manga>/Chapter N.pdf
+app (thread)     → copie scan/ vers le dossier de destination
 ```
 
-Par exemple, `scraper.cpp` charge `data/domaine.json`, vérifie la clé `domaine` et construit ensuite l'URL de base sous la forme `https://anime-sama.<extension>`.
+Les workers utilisent des chemins **relatifs** (`data/...`, `temp/`, `scan/`). L'application fait donc `SetCurrentDirectory` vers le dossier de son exe au démarrage ; les workers héritent de ce dossier de travail.
 
----
+## 4.3 Formats de fichiers
 
-## 4. SDL2
-
-**SDL2** est utilisé pour créer l'interface graphique.
-
-`chapter.cpp` et `gui.cpp` utilisent notamment :
-
-```cpp
-#include <SDL2/SDL.h>
+**`settings.json`** (hors de `data/`)
+```json
+{ "destination": "C:\\Users\\moi\\Documents\\Manga", "openWhenDone": true }
 ```
 
-SDL est initialisé pour créer la fenêtre et gérer les événements graphiques. `chapter.cpp` initialise également le système vidéo avec `SDL_INIT_VIDEO`.
-
----
-
-## 5. SDL2_ttf
-
-**SDL_ttf** est utilisé pour afficher du texte avec des polices TrueType.
-
-```cpp
-#include <SDL2/SDL_ttf.h>
+**`data/domaine.json`**
+```json
+{ "domaine": "<extension>" }
 ```
 
-Le programme charge notamment :
-
-```text
-data/font/yoruka.ttf
+**`data/heritage.json`** (base de recherche)
+```json
+{ "scan": { "<identifiant>": ["<url>", "..."] } }
 ```
 
-et utilise `TTF_OpenFont()` pour charger la police.
-
-### Dépendance supplémentaire
-
-SDL2_ttf dépend lui-même de SDL2.
-
-```text
-SDL2
-  ▲
-  │
-SDL2_ttf
+**`data/status.json`**
+```json
+{ "status": true }
 ```
+`false` pendant le travail du scraper, `true` quand il a fini.
 
----
-
-## 6. libharu
-
-**libharu** est utilisée par `pdf.cpp` pour créer les PDF.
-
-```cpp
-#include <hpdf.h>
-```
-
-Le programme :
-
-1. cherche les fichiers JPG ;
-2. trie les pages ;
-3. crée un document PDF ;
-4. charge chaque JPG ;
-5. crée une page ;
-6. place l'image dans la page ;
-7. sauvegarde le PDF.
-
-Les images sont redimensionnées avec une taille maximale de :
-
-```text
-1000 × 1400
-```
-
-sans agrandir les images plus petites.
-
----
-
-# 🧩 Résumé des dépendances
-
-| Dépendance        | Utilisation                  | Fichiers concernés                                                                    |
-| ----------------- | ---------------------------- | ------------------------------------------------------------------------------------- |
-| **C++17**         | Langage / STL                | Tous                                                                                  |
-| **libcurl**       | HTTP, HTTPS, téléchargements | `domaine.cpp`, `sitemap.cpp`, `scraper.cpp`, `download.cpp`                           |
-| **nlohmann/json** | Lecture/écriture JSON        | `domaine.cpp`, `sitemap.cpp`, `scraper.cpp`, `gui.cpp`, `chapter.cpp`, `download.cpp` |
-| **SDL2**          | Fenêtres / interface         | `gui.cpp`, `chapter.cpp`                                                              |
-| **SDL2_ttf**      | Texte dans l'interface       | `gui.cpp`, `chapter.cpp`                                                              |
-| **libharu**       | Création des PDF             | `pdf.cpp`                                                                             |
-| **Windows API**   | Lancement des `.exe`         | `main.cpp`, `gui.cpp`, `chapter.cpp`                                                  |
-| **yoruka.ttf**    | Police graphique             | `gui.cpp`, `chapter.cpp`                                                              |
-
----
-
-# 🔄 1. `main.exe`
-
-`main.cpp` est le lanceur général.
-
-Avant de lancer les autres programmes, il nettoie le dossier `data/`, en conservant uniquement :
-
-```text
-data/font/
-```
-
-Il lance ensuite les programmes dans cet ordre :
-
-```text
-1. domaine.exe
-2. preprocess.exe
-3. gui.exe
-4. chapter.exe
-```
-
-Chaque programme est lancé avec `CreateProcessA()` puis le programme principal attend sa fin avec `WaitForSingleObject()`.
-
-### Important
-
-Le code fourni appelle :
-
-```text
-preprocess.exe
-```
-
-mais aucun `preprocess.cpp` n'a été fourni avec les sources présentes dans ce dépôt.
-
-Le fonctionnement exact de cet exécutable doit donc être considéré comme **non documenté ici**.
-
----
-
-# 🌐 2. `domaine.exe`
-
-`domaine.cpp` sert à déterminer l'extension actuellement utilisée par le domaine.
-
-Il commence par contacter :
-
-```text
-https://anime-sama.pw
-```
-
-puis recherche le lien principal et récupère l'URL finale. Il extrait ensuite l'extension du domaine.
-Le résultat est enregistré dans :
-
-```text
-data/domaine.json
-```
-
-Le reste du projet peut ensuite utiliser cette information sans avoir à modifier directement le code source.
-
-Le format attendu est conceptuellement :
-
+**`data/result.json`**
 ```json
 {
-    "domaine": "to"
-}
-```
-
-Le scraper transforme ensuite cette valeur en :
-
-```text
-https://anime-sama.to
-```
-
-par exemple.
-
----
-
-# 🗺️ 3. `sitemap.exe` / étape sitemap
-
-`sitemap.cpp` récupère le sitemap du domaine et construit une liste d'URLs.
-
-Les fichiers utilisés sont :
-
-```text
-data/temp/sitemap_1.xml
-data/temp/all_link.json
-data/temp/scan_colecte.json
-data/heritage.json
-```
-
-Le programme extrait les URLs `<loc>` du sitemap.
-
-Il conserve ensuite principalement les URLs appartenant à :
-
-```text
-/catalogue/
-```
-
-et reconnaît notamment les URLs de scans.
-
----
-
-# 🌳 4. Construction de `heritage.json`
-
-Le sitemap permet de construire une relation entre :
-
-```text
-Anime
- └── Scans
-      ├── VF
-      ├── VOSTFR
-      └── ...
-```
-
-Le programme distingue les URLs parent :
-
-```text
-/catalogue/one-piece/
-```
-
-des URLs enfants :
-
-```text
-/catalogue/one-piece/scan/vf/
-```
-
-puis construit la structure :
-
-```json
-{
-    "scan": {
-        "one-piece": [
-            "https://...",
-            "https://..."
-        ]
+  "results": [
+    {
+      "titre": "Nom du manga",
+      "chapters": {
+        "1": { "image_count": 20, "images": ["<url>", "..."] }
+      }
     }
+  ]
 }
 ```
 
-Cette hiérarchie est sauvegardée dans :
+## 4.4 Protocole de progression
 
-```text
-data/heritage.json
-```
+L'application ne reçoit que du texte. Elle interprète ces lignes :
 
----
+| Worker | Ligne reconnue | Effet |
+|---|---|---|
+| `download.exe` | `[i/N] ...` | Met à jour la barre des images. Quand `i == 1`, un nouveau chapitre commence. |
+| `download.exe` / `pdf.exe` | `MANGA -> PDF` ou `LANCEMENT DE PDF.EXE` | Passe en phase « Création des PDF ». |
+| tous | n'importe quelle ligne | Affichée dans le journal (les codes ANSI sont retirés). |
 
-# 🖥️ 5. `gui.exe`
+Pourcentage de la barre des chapitres : `((chapitres_vus - 1) + image / total_images) / chapitres_sélectionnés`.
 
-`gui.cpp` fournit l'interface graphique permettant de rechercher un anime.
-
-Il utilise :
-
-```text
-SDL2
-SDL2_ttf
-nlohmann/json
-```
-
-et lit :
-
-```text
-data/heritage.json
-data/status.json
-```
-
-L'interface peut rechercher dans les données de `heritage.json`, puis lancer le scraper pour récupérer les informations du scan sélectionné.
-
----
-
-# 🔎 6. `scraper.exe`
-
-`scraper.cpp` reçoit une URL avec :
-
-```bash
-scraper.exe -link "URL"
-```
-
-Le programme vérifie l'option :
-
-```text
--link
-```
-
-et valide que l'URL fournie est correcte.
-
-Il utilise ensuite :
-
-```text
-libcurl
-nlohmann/json
-```
-
-pour récupérer la page et analyser les informations disponibles.
-
-Le résultat final est écrit dans :
-
-```text
-data/result.json
-```
-
----
-
-# 📚 7. `chapter.exe`
-
-`chapter.cpp` lit :
-
-```text
-data/result.json
-```
-
-puis extrait les chapitres présents dans la clé :
-
-```json
-{
-    "results": [...]
-}
-```
-
-Les chapitres sont ensuite triés numériquement :
-
-```text
-1
-2
-3
-10
-11
-```
-
-plutôt que :
-
-```text
-1
-10
-11
-2
-3
-```
-
-L'interface permet ensuite de sélectionner les chapitres à télécharger.
-
-Le programme utilise :
-
-```text
-SDL2
-SDL2_ttf
-nlohmann/json
-Windows API
-```
-
----
-
-# ⬇️ 8. `download.exe`
-
-`download.exe` utilise :
-
-```bash
-download.exe -all
-```
-
-pour télécharger tous les chapitres.
-
-Ou :
-
-```bash
-download.exe -chapter "[1,2,3]"
-```
-
-pour télécharger uniquement certains chapitres.
-
-Le programme lit :
-
-```text
-data/result.json
-```
-
-puis parcourt les résultats et crée des dossiers temporaires pour les anime.
-
-Les images sont téléchargées avec `libcurl`.
-
-Le téléchargement suit également les redirections HTTP et possède un timeout de 30 secondes.
-
----
-
-# 📄 9. `pdf.exe`
-
-Une fois les images téléchargées, `download.exe` lance :
-
-```text
-pdf.exe
-```
-
-Le programme `pdf.cpp` recherche les JPG dans les dossiers de chapitres.
-
-Les images sont triées numériquement :
-
-```text
-1.jpg
-2.jpg
-3.jpg
-...
-10.jpg
-```
-
-Chaque image devient une page du PDF.
-
-Le PDF est ensuite sauvegardé dans le chemin de sortie prévu par le programme.
-
-`download.exe` recherche `pdf.exe` dans le même dossier que lui.
-
----
-
-# 📂 Fichiers JSON
-
-## `data/domaine.json`
-
-Contient l'extension du domaine.
-
-Exemple :
-
-```json
-{
-    "domaine": "to"
-}
-```
-
----
-
-## `data/temp/all_link.json`
-
-Contient les URLs récupérées depuis le sitemap.
-
-Structure générale :
-
-```json
-{
-    "link": [
-        "https://...",
-        "https://..."
-    ]
-}
-```
-
----
-
-## `data/temp/scan_colecte.json`
-
-Contient les URLs filtrées correspondant aux pages de scans.
-
----
-
-## `data/heritage.json`
-
-Contient la hiérarchie anime → scans.
-
-Exemple conceptuel :
-
-```json
-{
-    "scan": {
-        "anime-name": [
-            "https://anime-sama.../catalogue/anime-name/scan/vf/"
-        ]
-    }
-}
-```
-
----
-
-## `data/result.json`
-
-Contient les informations récupérées par `scraper.exe`.
-
-`chapter.exe` attend notamment une structure contenant :
-
-```json
-{
-    "results": [
-        {
-            "titre": "...",
-            "chapters": {}
-        }
-    ]
-}
-```
-
-Le code de `chapter.cpp` vérifie la présence de `results` et extrait les chapitres à partir de cette structure.
-
----
-
-## `data/status.json`
-
-Utilisé pour communiquer un état entre les programmes.
-
-`gui.cpp` initialise notamment :
-
-```json
-{
-    "status": false
-}
-```
-
-puis peut lire cette valeur pour déterminer si une opération est terminée.
-
----
-
-# 🖋️ Police
-
-Le projet attend :
-
-```text
-data/font/yoruka.ttf
-```
-
-Cette police est chargée par l'interface avec SDL_ttf.
-
-Il faut donc conserver cette arborescence :
-
-```text
-data/
-└── font/
-    └── yoruka.ttf
-```
-
----
-
-# 🛠️ Compilation
-
-Aucun `CMakeLists.txt`, `Makefile` ou autre système de build n'a été fourni dans les fichiers disponibles.
-
-Il faut donc configurer manuellement le linker et les include paths selon l'environnement utilisé.
-
-## Bibliothèques à rendre disponibles
-
-```text
-SDL2
-SDL2_ttf
-libcurl
-nlohmann/json
-libharu
-```
-
-Avec un compilateur Windows, il faudra également avoir accès aux bibliothèques système nécessaires à l'utilisation de l'API Windows.
-
----
-
-# ⚠️ Points importants
-
-### Windows uniquement
-
-Certaines parties du projet contiennent explicitement :
+**Contrainte importante** : quand stdout est un pipe, la sortie est mise en tampon. Chaque worker commence donc son `main()` par :
 
 ```cpp
-#include <windows.h>
+setvbuf(stdout, nullptr, _IONBF, 0);
 ```
 
-et utilisent :
+Sans cette ligne, les barres n'avancent pas. Si tu modifies les messages de `download.cpp`, garde `[i/N]` en début de ligne.
+
+## 4.5 Classe `Job` (processus cachés)
+
+Dans `app.cpp`, `Job` encapsule un processus :
+
+- `CreateProcessA` avec `CREATE_NO_WINDOW | CREATE_SUSPENDED` et stdout/stderr redirigés vers un pipe anonyme.
+- Le processus est placé dans un **Job Object** Windows (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`), puis relancé (`ResumeThread`). Ainsi, `kill()` termine aussi les processus enfants (par exemple `pdf.exe` lancé par `download.exe`), et fermer la fenêtre ne laisse aucun processus orphelin.
+- `pump()` est appelé à chaque frame : il lit le pipe sans bloquer (`PeekNamedPipe`), découpe en lignes (`log`, `fresh`) et détecte la fin du processus (`exitCode`).
+
+Un seul `Job` est actif à la fois.
+
+## 4.6 Machine à états de l'interface
 
 ```cpp
-CreateProcessA()
-WaitForSingleObject()
-CloseHandle()
+enum class Screen { Home, Prepare, Search, Scraping, Chapters,
+                    Download, Copy, Done, Error };
 ```
 
-Le projet n'est donc pas actuellement portable tel quel sous Linux ou macOS.
+La boucle principale fait toujours : événements → `app.update()` → `renderApp()`.
 
----
+| Écran | `update()` | Transition |
+|---|---|---|
+| `Prepare` | surveille `domaine` puis `preprocess` | → `Search` (ou `Home` si mise à jour manuelle) |
+| `Scraping` | surveille `scraper` ; réussite = code 0 **et** `status == true` | → `Chapters` ou `Error` |
+| `Download` | parse les lignes ; à la fin, vérifie que `scan/` n'est pas vide | → `Copy` ou `Error` |
+| `Copy` | attend la fin du thread de copie | → `Done` |
 
-### `preprocess.cpp` manquant
+Les clics sont traités dans `onClick()` (un `switch` par écran), le dessin dans `renderApp()`.
 
-Le lanceur principal exécute :
+## 4.7 Copie vers la destination
 
-```text
-preprocess.exe
-```
+`startCopy()` lance un `std::thread` qui liste les fichiers de `scan/`, les copie un par un avec `fs::copy_file(..., overwrite_existing)` en conservant l'arborescence, puis supprime `scan/` et `temp/`. La progression passe par des `std::atomic<int>` (`copyDone`, `copyTotal`). Ce thread n'est jamais interrompu en cours de copie ; `stopAll()` attend sa fin avec `join()`.
 
-mais le fichier source correspondant n'est pas présent parmi les sources fournies.
+## 4.8 Ajouter un écran ou une fonctionnalité
 
-Il faudra donc ajouter/reconstituer ce programme pour obtenir une chaîne complète et compilable depuis les sources présentes.
+1. Ajoute une valeur à `enum class Screen`.
+2. Déclare ses rectangles (constantes `R_...`) en haut du fichier.
+3. Ajoute un `case` dans `onClick()` pour les clics.
+4. Ajoute un `case` dans `renderApp()` pour le dessin.
+5. Si l'écran surveille un processus, écris `updateXxx()` et branche-le dans `App::update()`.
+6. Pour lancer un programme : `job.start(".\\mon_worker.exe args")`.
 
----
+Composants réutilisables : `drawButton`, `drawProgress` (fraction < 0 = barre animée), `drawLog`, `drawScrollbar`, `fitHead` / `fitTail` (texte tronqué à la largeur), `clampScroll`.
 
-### Les exécutables doivent être correctement placés
+## 4.9 Ajouter un worker
 
-Plusieurs programmes lancent directement d'autres `.exe`.
+1. Écris un programme console qui lit/écrit ses fichiers en chemins relatifs.
+2. Mets `setvbuf(stdout, nullptr, _IONBF, 0);` en début de `main()`.
+3. Affiche la progression sous une forme parsable (ex. `[i/N]`).
+4. Ajoute sa compilation dans `build.bat` et son parsing dans la méthode `update` correspondante.
 
-Par exemple :
+## 4.10 Limites connues et pistes
 
-```text
-chapter.exe
-   └── download.exe
-          └── pdf.exe
-```
-
-`download.exe` cherche explicitement `pdf.exe` dans son propre dossier.
-
-Il est donc recommandé de conserver tous les exécutables au même niveau :
-
-```text
-project/
-├── main.exe
-├── domaine.exe
-├── preprocess.exe
-├── gui.exe
-├── scraper.exe
-├── chapter.exe
-├── download.exe
-└── pdf.exe
-```
-
----
-
-# 🚀 Utilisation
-
-Une fois tous les exécutables compilés et les dépendances installées :
-
-```bash
-main.exe
-```
-
-Le programme effectue alors automatiquement :
-
-```text
-Nettoyage
-   ↓
-Détection du domaine
-   ↓
-Prétraitement / sitemap
-   ↓
-Interface graphique
-   ↓
-Recherche
-   ↓
-Sélection d'un scan
-   ↓
-Scraping
-   ↓
-Sélection des chapitres
-   ↓
-Téléchargement
-   ↓
-Génération des PDF
-```
-
----
-
-# 🧪 Utilisation manuelle
-
-Les programmes peuvent également être utilisés individuellement.
-
-### Scraper
-
-```bash
-scraper.exe -link "https://anime-sama.to/catalogue/..."
-```
-
-Le format `-link` est celui prévu par `scraper.cpp`.
-
-### Télécharger tous les chapitres
-
-```bash
-download.exe -all
-```
-
-### Télécharger certains chapitres
-
-```bash
-download.exe -chapter "[1,2,3]"
-```
-
-Ces deux modes sont directement prévus dans `download.cpp`.
-
----
-
-# 🧱 Architecture
-
-Le projet peut être résumé en quatre grandes couches :
-
-```text
-┌──────────────────────────────┐
-│          INTERFACE           │
-│       gui.exe / chapter.exe  │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│          DONNÉES             │
-│         fichiers JSON        │
-│                              │
-│ domaine.json                 │
-│ heritage.json                │
-│ result.json                  │
-│ status.json                  │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│          SCRAPING            │
-│ domaine / sitemap / scraper  │
-│            libcurl            │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│       TÉLÉCHARGEMENT         │
-│          download.exe        │
-│            ↓                 │
-│           pdf.exe            │
-│          libharu             │
-└──────────────────────────────┘
-```
-
----
-
-# 📋 Sources fournies
-
-| Source         | Fonction                                |
-| -------------- | --------------------------------------- |
-| `main.cpp`     | Lanceur principal et orchestration      |
-| `domaine.cpp`  | Détection de l'extension du domaine     |
-| `sitemap.cpp`  | Récupération et organisation du sitemap |
-| `scraper.cpp`  | Scraping d'un scan                      |
-| `gui.cpp`      | Interface graphique / recherche         |
-| `chapter.cpp`  | Sélection des chapitres                 |
-| `download.cpp` | Téléchargement des images               |
-| `pdf.cpp`      | Génération des PDF                      |
-
----
-
-# 📜 Licence
-
-Aucune licence n'est définie dans les sources fournies.
-
-Ajoutez un fichier `LICENSE` à la racine du dépôt si vous souhaitez définir les conditions de réutilisation du projet.
-
----
-
-# ⚠️ Utilisation responsable
-
-Ce logiciel effectue des requêtes réseau et télécharge des ressources depuis des sites externes.
-
-Utilisez-le uniquement lorsque vous disposez des droits nécessaires pour accéder, télécharger et conserver les contenus concernés, et respectez les conditions d'utilisation des services auxquels vous vous connectez.
+- Seul le téléchargement affiche de vrais pourcentages ; les autres étapes ont une barre animée. Piste : faire afficher `[i/N]` aux autres workers.
+- L'interface n'est pas adaptée au DPI élevé et la fenêtre a une taille fixe (1000×700).
+- Le rendu recrée une texture par texte et par frame. C'est suffisant ici, mais un cache de textures serait plus économe.
+- Fusionner tous les workers dans un seul `.exe` demanderait de transformer chaque `main()` en fonction avec annulation coopérative (drapeau `atomic<bool>`) et de remplacer `std::cout` par un canal de progression.
+- Le code n'a pas encore été testé en conditions réelles sur toutes les étapes : signale les erreurs de compilation ou d'exécution pour les corriger.
