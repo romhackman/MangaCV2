@@ -1,3 +1,5 @@
+#include <fstream>
+#include <cstring>
 #include <cstdio>
 #include <iostream>
 #include <filesystem>
@@ -88,6 +90,19 @@ bool compareChapters(const fs::path& a, const fs::path& b)
     return a.filename().string() < b.filename().string();
 }
 
+// Detecte le vrai format d'un fichier image (par ses premiers octets)
+static std::string detectImageKind(const fs::path& p)
+{
+    std::ifstream f(p, std::ios::binary);
+    unsigned char h[12] = {};
+    f.read(reinterpret_cast<char*>(h), 12);
+    std::streamsize n = f.gcount();
+
+    if (n >= 3 && h[0] == 0xFF && h[1] == 0xD8 && h[2] == 0xFF) return "jpeg";
+    if (n >= 8 && h[0] == 0x89 && h[1] == 'P' && h[2] == 'N' && h[3] == 'G') return "png";
+    return "other"; // webp, html d'erreur, fichier corrompu...
+}
+
 // ---------------------------------------------------------
 // Crée un PDF à partir d'un dossier contenant les JPG
 // ---------------------------------------------------------
@@ -163,6 +178,7 @@ bool createPdf(
     }
 
     bool success = true;
+    size_t skippedImages = 0;
 
     try
     {
@@ -182,20 +198,28 @@ bool createPdf(
             // -------------------------------------------------
             // Charger l'image JPG
             // -------------------------------------------------
-            HPDF_Image image =
-                HPDF_LoadJpegImageFromFile(
-                    pdf,
-                    imagePath.string().c_str()
-                );
+            HPDF_Image image = nullptr;
+            {
+                const std::string kind = detectImageKind(imagePath);
+                const std::string p = imagePath.string();
+
+                if (kind == "jpeg")
+                    image = HPDF_LoadJpegImageFromFile(pdf, p.c_str());
+                else if (kind == "png")
+                    image = HPDF_LoadPngImageFromFile(pdf, p.c_str());
+            }
 
             if (!image)
             {
+                // Une image illisible ne doit plus faire perdre tout le chapitre
                 std::cerr
-                    << "    Erreur avec l'image : "
+                    << "    Image ignoree (illisible ou format non supporte) : "
                     << imagePath
-                    << '\n';
+                    << '
+';
 
-                success = false;
+                HPDF_ResetError(pdf);
+                ++skippedImages;
                 continue;
             }
 
@@ -219,7 +243,7 @@ bool createPdf(
                     << imagePath
                     << '\n';
 
-                success = false;
+                ++skippedImages;
                 continue;
             }
 
@@ -250,7 +274,7 @@ bool createPdf(
                 std::cerr
                     << "    Impossible de creer une page.\n";
 
-                success = false;
+                ++skippedImages;
                 continue;
             }
 
@@ -280,12 +304,29 @@ bool createPdf(
         // -----------------------------------------------------
         // Sauvegarder le PDF
         // -----------------------------------------------------
-        if (success)
+        if (HPDF_GetPageCount(pdf) > 0)
         {
-            HPDF_SaveToFile(
-                pdf,
-                outputPdf.string().c_str()
-            );
+            HPDF_STATUS st = HPDF_SaveToFile(pdf, outputPdf.string().c_str());
+
+            if (st != HPDF_OK)
+            {
+                std::cerr << "    Echec de sauvegarde du PDF (code "
+                          << st << ")
+";
+                success = false;
+            }
+            else if (skippedImages > 0)
+            {
+                std::cerr << "    Attention : " << skippedImages
+                          << " image(s) ignoree(s)
+";
+            }
+        }
+        else
+        {
+            std::cerr << "    Aucune image utilisable.
+";
+            success = false;
         }
     }
     catch (...)

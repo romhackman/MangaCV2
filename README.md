@@ -109,6 +109,7 @@ Le script crée `dist/` avec tous les exécutables. Si g++ ne trouve pas tes bib
 | Échec de la préparation | Pas d'accès à internet, ou le site est indisponible. Réessaie avec **Mettre à jour la base**. |
 | La barre des images reste vide | `setvbuf(stdout, nullptr, _IONBF, 0);` manque dans `download.cpp`. |
 | « Aucun PDF n'a été créé » | Regarde la dernière ligne du journal indiquée dans le message d'erreur. |
+| Certains chapitres n'ont pas de PDF | L'écran final liste les chapitres manquants. Ouvre `last_run.log` (dossier de l'application) : il contient tout le journal de `download.exe` et `pdf.exe`. |
 | Un manga n'apparaît pas | Fais **Mettre à jour la base**. |
 | Disque qui se remplit | Clique sur **Vider le cache**. |
 
@@ -235,6 +236,12 @@ La boucle principale fait toujours : événements → `app.update()` → `render
 
 Les clics sont traités dans `onClick()` (un `switch` par écran), le dessin dans `renderApp()`.
 
+## 4.6 bis Robustesse du téléchargement et des PDF
+
+- `download.cpp` : 3 tentatives par image, et vérification des premiers octets du fichier (JPEG, PNG ou WEBP) pour rejeter les pages d'erreur HTML reçues avec un code 200.
+- `pdf.cpp` : le vrai format est détecté par les premiers octets (JPEG ou PNG). Une image illisible est ignorée au lieu d'annuler tout le PDF du chapitre, et le PDF est enregistré s'il contient au moins une page.
+- `app.cpp` : le journal complet de `download.exe` est écrit dans `last_run.log`, et les chapitres sélectionnés sans PDF dans `scan/` sont listés sur l'écran final.
+
 ## 4.7 Copie vers la destination
 
 `startCopy()` lance un `std::thread` qui liste les fichiers de `scan/`, les copie un par un avec `fs::copy_file(..., overwrite_existing)` en conservant l'arborescence, puis supprime `scan/` et `temp/`. La progression passe par des `std::atomic<int>` (`copyDone`, `copyTotal`). Ce thread n'est jamais interrompu en cours de copie ; `stopAll()` attend sa fin avec `join()`.
@@ -258,6 +265,8 @@ Composants réutilisables : `drawButton`, `drawProgress` (fraction < 0 = barre a
 4. Ajoute sa compilation dans `build.bat` et son parsing dans la méthode `update` correspondante.
 
 ## 4.10 Limites connues et pistes
+
+- Les chapitres décimaux (ex. `2.5`) ne sont pas gérés par `download.cpp` : il convertit les numéros en entier (`std::stoi`), donc `2.5` est traité comme `2`. Ils apparaissent comme manquants à la fin.
 
 - Seul le téléchargement affiche de vrais pourcentages ; les autres étapes ont une barre animée. Piste : faire afficher `[i/N]` aux autres workers.
 - L'interface n'est pas adaptée au DPI élevé et la fenêtre a une taille fixe (1000×700).

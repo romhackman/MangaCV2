@@ -257,6 +257,27 @@ void clearCache()
     fs::remove(STATUS_FILE, ec);
 }
 
+void writeRunLog(const std::string& text)
+{
+    std::ofstream f("last_run.log", std::ios::trunc | std::ios::binary);
+    if (f) f << text;
+}
+
+// Un PDF "Chapter N.pdf" existe-t-il dans scan/<manga>/ ?
+bool pdfExistsForChapter(const std::string& name)
+{
+    std::error_code ec;
+    if (!fs::exists("scan", ec)) return false;
+
+    for (const auto& entry : fs::directory_iterator("scan", ec))
+    {
+        std::error_code e2;
+        if (!entry.is_directory(e2)) continue;
+        if (fs::exists(entry.path() / ("Chapter " + name + ".pdf"), e2)) return true;
+    }
+    return false;
+}
+
 std::string formatBytes(std::uintmax_t b)
 {
     char buf[64];
@@ -283,10 +304,11 @@ struct Job
     std::string partial;
     std::deque<std::string> log;
     std::vector<std::string> fresh;
+    std::string fullLog;               // journal complet (ecrit dans last_run.log)
 
     bool start(const std::string& cmd)
     {
-        log.clear(); fresh.clear(); partial.clear();
+        log.clear(); fresh.clear(); partial.clear(); fullLog.clear();
         exitCode = 0;
 
         SECURITY_ATTRIBUTES sa{ sizeof(sa), nullptr, TRUE };
@@ -342,6 +364,7 @@ struct Job
         if (line.empty()) return;
         log.push_back(line);
         fresh.push_back(line);
+        if (fullLog.size() < 4000000) { fullLog += line; fullLog += '\n'; }
         if (log.size() > 200) log.pop_front();
     }
 
@@ -678,6 +701,8 @@ struct App
     int chaptersTotal = 1, chaptersSeen = 0;
     int imgCur = 0, imgTot = 0;
     bool pdfPhase = false;
+    std::vector<std::string> selectedNames;
+    std::vector<std::string> missingChapters;
 
     // copie
     std::thread copyThread;
@@ -937,6 +962,8 @@ struct App
         fs::remove_all("temp", ec);
         fs::remove_all("scan", ec);
 
+        selectedNames = sel;
+        missingChapters.clear();
         chaptersTotal = static_cast<int>(sel.size());
         chaptersSeen = 0; imgCur = imgTot = 0; pdfPhase = false;
         screen = Screen::Download;
@@ -952,7 +979,7 @@ struct App
         for (const std::string& line : job.fresh)
         {
             int i = 0, n = 0;
-            if (std::sscanf(line.c_str(), "[%d/%d]", &i, &n) == 2 && n > 0)
+            if (!pdfPhase && std::sscanf(line.c_str(), "[%d/%d]", &i, &n) == 2 && n > 0)
             {
                 imgCur = i; imgTot = n;
                 if (i == 1) ++chaptersSeen;
@@ -965,7 +992,14 @@ struct App
 
         if (job.running) return;
 
-        // download.exe (et pdf.exe) termine : on verifie qu'il y a des PDF
+        // download.exe (et pdf.exe) termine
+        writeRunLog(job.fullLog);
+
+        missingChapters.clear();
+        for (const auto& n : selectedNames)
+            if (!pdfExistsForChapter(n)) missingChapters.push_back(n);
+
+        // on verifie qu'il y a des PDF
         if (folderSize("scan") == 0)
         {
             fail("Aucun PDF n'a été créé. Consulte la dernière ligne du journal : " +
@@ -1436,11 +1470,27 @@ void renderApp(App& app, int mx, int my, Uint32 ticks)
     // ================= TERMINE =================
     case Screen::Done:
     {
-        renderHeader("Terminé");
-        drawProgress(R_BAR_A, 1.0, FINISHED_COLOR, ticks);
-        drawText(gFont, "Téléchargement terminé !  (" + std::to_string(app.copyTotal.load()) + " fichier(s))",
-                 40, 290, FINISHED_COLOR);
+        bool warn = !app.missingChapters.empty();
+        renderHeader(warn ? "Terminé avec avertissements" : "Terminé");
+        drawProgress(R_BAR_A, 1.0, warn ? SEARCHING_COLOR : FINISHED_COLOR, ticks);
+        drawText(gFont, "PDF créés : " + std::to_string(app.copyTotal.load()) + " fichier(s)",
+                 40, 290, warn ? TEXT_COLOR : FINISHED_COLOR);
         drawText(gFont, fitTail(app.settings.destination, 900), 40, 330, MUTED_COLOR);
+
+        if (warn)
+        {
+            std::string list;
+            for (size_t i = 0; i < app.missingChapters.size(); ++i)
+            {
+                list += app.missingChapters[i];
+                if (i + 1 < app.missingChapters.size()) list += ", ";
+            }
+            drawText(gFont, std::to_string(app.missingChapters.size()) + " chapitre(s) non créé(s) :",
+                     40, 390, SEARCHING_COLOR);
+            drawText(gFont, fitHead(list, 900), 40, 425, TEXT_COLOR);
+            drawText(gFont, "Détails dans le fichier last_run.log (dossier de l'application).",
+                     40, 470, MUTED_COLOR);
+        }
 
         drawButton(R_PRIMARY, "Ouvrir le dossier", mx, my);
         drawButton(R_BACK, "Accueil", mx, my);

@@ -1,3 +1,6 @@
+#include <thread>
+#include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <iostream>
 #include <fstream>
@@ -41,7 +44,7 @@ size_t writeFileCallback(
 // Télécharger une image
 // ============================================================
 
-bool downloadImage(
+static bool downloadImageOnce(
     const std::string& url,
     const fs::path& outputPath)
 {
@@ -162,6 +165,43 @@ bool downloadImage(
 // ============================================================
 // Nettoyer un nom de dossier Windows
 // ============================================================
+
+// Verifie que le fichier telecharge est bien une image
+// (et pas une page d'erreur HTML renvoyee avec un code 200)
+static bool looksLikeImage(const fs::path& p)
+{
+    std::ifstream f(p, std::ios::binary);
+    unsigned char h[12] = {};
+    f.read(reinterpret_cast<char*>(h), 12);
+    std::streamsize n = f.gcount();
+
+    if (n >= 3 && h[0] == 0xFF && h[1] == 0xD8 && h[2] == 0xFF) return true; // JPEG
+    if (n >= 8 && h[0] == 0x89 && h[1] == 'P' && h[2] == 'N' && h[3] == 'G') return true; // PNG
+    if (n >= 12 && std::memcmp(h, "RIFF", 4) == 0 && std::memcmp(h + 8, "WEBP", 4) == 0) return true; // WEBP
+    return false;
+}
+
+// Telechargement avec 3 tentatives
+bool downloadImage(const std::string& url, const fs::path& outputPath)
+{
+    const int maxAttempts = 3;
+
+    for (int attempt = 1; attempt <= maxAttempts; ++attempt)
+    {
+        if (downloadImageOnce(url, outputPath) && looksLikeImage(outputPath))
+            return true;
+
+        std::error_code ec;
+        fs::remove(outputPath, ec);
+
+        if (attempt < maxAttempts)
+        {
+            std::cout << "[RETRY " << attempt << "/" << (maxAttempts - 1) << "] ";
+            std::this_thread::sleep_for(std::chrono::milliseconds(700 * attempt));
+        }
+    }
+    return false;
+}
 
 std::string sanitizeFolderName(
     std::string name)
