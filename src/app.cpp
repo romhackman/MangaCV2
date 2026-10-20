@@ -17,6 +17,7 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <nlohmann/json.hpp>
+#include <curl/curl.h>
 
 #include <windows.h>
 #include <shlobj.h>
@@ -26,11 +27,13 @@
 #include <atomic>
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <deque>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <regex>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -46,7 +49,7 @@ using json = nlohmann::json;
 const int WINDOW_WIDTH  = 1000;
 const int WINDOW_HEIGHT = 700;
 
-const char* APP_VERSION = "v0.1.0";
+const char* APP_VERSION = "v0.1.1";
 
 const std::string SETTINGS_FILE = "settings.json";
 const std::string HERITAGE_FILE = "data/heritage.json";
@@ -563,7 +566,7 @@ int clampScroll(int offset, int contentH, int viewH)
 // MODELE
 // ==========================================================
 
-struct SearchResult { std::string identifier, url; };
+struct SearchResult { std::string identifier, url; bool scanChoice = false; };
 
 struct Chapter
 {
@@ -624,6 +627,116 @@ std::vector<SearchResult> searchManga(const json& scans, const std::string& quer
     return unique;
 }
 
+// Recherche directe Anime-Sama (API de recherche puis choix des scans).
+const std::string ANIME_SAMA_BASE = "https://anime-sama.to";
+const std::string ANIME_SAMA_API = "https://anime-sama.to/template-php/defaut/fetch.php";
+
+size_t curlWriteCallback(char* data, size_t size, size_t count, void* userData)
+{
+    const size_t bytes = size * count;
+    static_cast<std::string*>(userData)->append(data, bytes);
+    return bytes;
+}
+
+std::string decodeBasicHtml(std::string value)
+{
+    const std::pair<const char*, const char*> entities[] = {
+        {"&amp;", "&"}, {"&quot;", "\""}, {"&#39;", "'"}, {"&apos;", "'"},
+        {"&lt;", "<"}, {"&gt;", ">"}, {"&nbsp;", " "}
+    };
+    for (const auto& e : entities) {
+        size_t pos = 0;
+        while ((pos = value.find(e.first, pos)) != std::string::npos) {
+            value.replace(pos, std::strlen(e.first), e.second);
+            pos += std::strlen(e.second);
+        }
+    }
+    return value;
+}
+
+std::string stripHtmlTags(std::string value)
+{
+    value = std::regex_replace(value, std::regex(R"(<[^>]*>)"), "");
+    return trim(decodeBasicHtml(value));
+}
+
+std::string fetchHtml(const std::string& url, const std::string* postData = nullptr)
+{
+    CURL* curl = curl_easy_init();
+    if (!curl) return {};
+    std::string response;
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "User-Agent: Mozilla/5.0");
+    headers = curl_slist_append(headers, "X-Requested-With: XMLHttpRequest");
+    headers = curl_slist_append(headers, "Referer: https://anime-sama.to/");
+    if (postData) headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded; charset=UTF-8");
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curlWriteCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 35L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    if (postData) {
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData->c_str());
+    }
+    CURLcode code = curl_easy_perform(curl);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return code == CURLE_OK ? response : std::string();
+}
+
+std::vector<SearchResult> searchAnimeSamaDirect(const std::string& query)
+{
+    std::vector<SearchResult> out;
+    CURL* curl = curl_easy_init();
+    if (!curl) return out;
+    char* escaped = curl_easy_escape(curl, query.c_str(), static_cast<int>(query.size()));
+    if (!escaped) { curl_easy_cleanup(curl); return out; }
+    std::string postData = "query=" + std::string(escaped);
+    curl_free(escaped);
+    curl_easy_cleanup(curl);
+    const std::string html = fetchHtml(ANIME_SAMA_API, &postData);
+    if (html.empty()) return out;
+
+    const std::regex anchorPattern(R"(<a\b[^>]*class\s*=\s*["'][^"']*\basn-search-result\b[^"']*["'][^>]*>[\s\S]*?</a>)", std::regex_constants::icase);
+    const std::regex hrefPattern(R"(\bhref\s*=\s*["']([^"']+)["'])", std::regex_constants::icase);
+    const std::regex titlePattern(R"(<h3\b[^>]*class\s*=\s*["'][^"']*\basn-search-result-title\b[^"']*["'][^>]*>([\s\S]*?)</h3>)", std::regex_constants::icase);
+    for (auto it = std::sregex_iterator(html.begin(), html.end(), anchorPattern); it != std::sregex_iterator(); ++it) {
+        const std::string block = it->str();
+        std::smatch href, title;
+        if (!std::regex_search(block, href, hrefPattern) || !std::regex_search(block, title, titlePattern)) continue;
+        std::string url = decodeBasicHtml(href[1].str());
+        if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0)
+            url = ANIME_SAMA_BASE + (url.empty() || url.front() != '/' ? "/" : "") + url;
+        out.push_back({stripHtmlTags(title[1].str()), url, false});
+    }
+    return out;
+}
+
+std::vector<SearchResult> fetchAnimeScanChoices(const std::string& animeUrl)
+{
+    std::vector<SearchResult> out;
+    const std::string html = fetchHtml(animeUrl);
+    if (html.empty()) return out;
+    const std::regex scanPattern(R"(panneauScan\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\))", std::regex_constants::icase);
+    for (auto it = std::sregex_iterator(html.begin(), html.end(), scanPattern); it != std::sregex_iterator(); ++it) {
+        std::string title = decodeBasicHtml((*it)[1].str());
+        std::string url = decodeBasicHtml((*it)[2].str());
+        if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) {
+            if (url.empty() || url.front() != '/') url = "/" + url;
+            url = ANIME_SAMA_BASE + url;
+        }
+        out.push_back({title, url, true});
+    }
+    std::vector<SearchResult> unique;
+    std::unordered_set<std::string> seen;
+    for (const auto& item : out) if (seen.insert(item.url).second) unique.push_back(item);
+    return unique;
+}
+
 // ==========================================================
 // APPLICATION
 // ==========================================================
@@ -644,9 +757,11 @@ const SDL_Rect R_CACHE_BTN  = {  40, 450, 300,  45 };
 const SDL_Rect R_START_BTN  = {  40, 560, 400,  55 };
 
 // Recherche
-const SDL_Rect R_SEARCH_BOX = {  40, 100, 700,  50 };
-const SDL_Rect R_SEARCH_BTN = { 760, 100, 200,  50 };
-const SDL_Rect R_SEARCH_LST = {  40, 200, 920, 420 };
+const SDL_Rect R_MODE_ANIME = {  40,  78, 270,  30 };
+const SDL_Rect R_MODE_SITEMAP = { 320,  78, 270,  30 };
+const SDL_Rect R_SEARCH_BOX = {  40, 120, 700,  50 };
+const SDL_Rect R_SEARCH_BTN = { 760, 120, 200,  50 };
+const SDL_Rect R_SEARCH_LST = {  40, 230, 920, 390 };
 const int      SEARCH_ROW_H = 65;
 
 // Chapitres
@@ -689,6 +804,9 @@ struct App
     std::string searchText;
     std::vector<SearchResult> results;
     bool searched = false;
+    bool useAnimeSamaSearch = true;
+    bool showingScanChoices = false;
+    std::string selectedAnimeUrl;
     int searchScroll = 0;
     std::string selName;
 
@@ -775,8 +893,8 @@ struct App
             return;
         }
 
-        if (heritageOk) enterSearch();
-        else            startPrepare(true);
+        if (useAnimeSamaSearch || heritageOk) enterSearch();
+        else                            startPrepare(true);
     }
 
     void enterSearch()
@@ -849,9 +967,33 @@ struct App
     void doSearch()
     {
         if (trim(searchText).empty()) return;
-        results = searchManga(scans, searchText);
+        results.clear();
+        showingScanChoices = false;
         searched = true;
         searchScroll = 0;
+        if (useAnimeSamaSearch) {
+            results = searchAnimeSamaDirect(trim(searchText));
+        } else {
+            results = searchManga(scans, searchText);
+        }
+    }
+
+    void chooseSearchResult(const SearchResult& r)
+    {
+        if (useAnimeSamaSearch && !r.scanChoice) {
+            selectedAnimeUrl = r.url;
+            selName = r.identifier;
+            results = fetchAnimeScanChoices(r.url);
+            showingScanChoices = true;
+            searched = true;
+            searchScroll = 0;
+            if (results.empty()) {
+                // Keep the selected anime visible as context and let the user retry/change method.
+                searched = true;
+            }
+            return;
+        }
+        startScrape(r);
     }
 
     void startScrape(const SearchResult& r)
@@ -1161,6 +1303,16 @@ void onClick(App& app, int x, int y, bool& running)
     case Screen::Search:
     {
         app.activeInput = inRect(x, y, R_SEARCH_BOX) ? &app.searchText : app.activeInput;
+        if (inRect(x, y, R_MODE_ANIME)) {
+            app.useAnimeSamaSearch = true;
+            app.results.clear(); app.searched = false; app.showingScanChoices = false; app.searchScroll = 0;
+        }
+        if (inRect(x, y, R_MODE_SITEMAP)) {
+            app.useAnimeSamaSearch = false;
+            app.results.clear(); app.searched = false; app.showingScanChoices = false; app.searchScroll = 0;
+            if (!app.heritageOk) { app.startPrepare(true); break; }
+        }
+
         if (!inRect(x, y, R_SEARCH_BOX) && !inRect(x, y, R_SEARCH_LST)) { /* garde le focus */ }
 
         if (inRect(x, y, R_SEARCH_BTN)) app.doSearch();
@@ -1173,7 +1325,7 @@ void onClick(App& app, int x, int y, bool& running)
                 SDL_Rect row = { R_SEARCH_LST.x,
                                  R_SEARCH_LST.y + int(i) * SEARCH_ROW_H - app.searchScroll,
                                  R_SEARCH_LST.w - 14, 55 };
-                if (inRect(x, y, row)) { app.startScrape(app.results[i]); break; }
+                if (inRect(x, y, row)) { app.chooseSearchResult(app.results[i]); break; }
             }
         }
         break;
@@ -1318,7 +1470,20 @@ void renderApp(App& app, int mx, int my, Uint32 ticks)
     // ================= RECHERCHE =================
     case Screen::Search:
     {
-        renderHeader("");
+        renderHeader(".");
+
+        // Deux options exclusives : recherche directe Anime-Sama ou base issue du sitemap.
+        auto drawMode = [&](const SDL_Rect& rect, const std::string& label, bool selected) {
+            drawPanel(rect, selected ? BUTTON_COLOR : PANEL_COLOR);
+            drawBorder(rect, selected ? HOVER_COLOR : BORDER_COLOR);
+            SDL_Rect check = { rect.x + 8, rect.y + 6, 18, 18 };
+            drawPanel(check, INPUT_COLOR);
+            drawBorder(check, BORDER_COLOR);
+            if (selected) { SDL_Rect dot = {check.x + 4, check.y + 4, 10, 10}; drawPanel(dot, FINISHED_COLOR); }
+            drawText(gFont, label, rect.x + 34, rect.y + 6, TEXT_COLOR);
+        };
+        drawMode(R_MODE_ANIME, "Anime-Sama (direct)", app.useAnimeSamaSearch);
+        drawMode(R_MODE_SITEMAP, "Sitemap (base locale)", !app.useAnimeSamaSearch);
 
         drawPanel(R_SEARCH_BOX, INPUT_COLOR);
         bool focus = app.activeInput == &app.searchText;
@@ -1333,11 +1498,19 @@ void renderApp(App& app, int mx, int my, Uint32 ticks)
 
         if (app.results.empty())
         {
-            if (app.searched) drawText(gFont, "Aucun résultat.", 40, 170, MUTED_COLOR);
+            if (app.searched) {
+                const std::string message = app.useAnimeSamaSearch && app.showingScanChoices
+                    ? "Aucun scan trouve pour cet anime. Essaie l'autre source."
+                    : "Aucun resultat. Verifie la source ou essaie l'autre methode.";
+                drawText(gFont, message, 40, 205, MUTED_COLOR);
+            }
         }
         else
         {
-            drawText(gFont, std::to_string(app.results.size()) + " résultat(s)", 40, 165, MUTED_COLOR);
+            std::string label = app.showingScanChoices
+                ? "Scans disponibles pour : " + app.selName
+                : std::to_string(app.results.size()) + " resultat(s)";
+            drawText(gFont, label, 40, 205, MUTED_COLOR);
 
             int contentH = int(app.results.size()) * SEARCH_ROW_H;
             app.searchScroll = clampScroll(app.searchScroll, contentH, R_SEARCH_LST.h);

@@ -179,6 +179,7 @@ bool createPdf(
 
     bool success = true;
     size_t skippedImages = 0;
+    size_t createdPages = 0;
 
     try
     {
@@ -215,8 +216,7 @@ bool createPdf(
                 std::cerr
                     << "    Image ignoree (illisible ou format non supporte) : "
                     << imagePath
-                    << '
-';
+                    << '\n';
 
                 HPDF_ResetError(pdf);
                 ++skippedImages;
@@ -299,33 +299,31 @@ bool createPdf(
                 pageWidth,
                 pageHeight
             );
+            ++createdPages;
         }
 
         // -----------------------------------------------------
         // Sauvegarder le PDF
         // -----------------------------------------------------
-        if (HPDF_GetPageCount(pdf) > 0)
+        if (createdPages > 0)
         {
             HPDF_STATUS st = HPDF_SaveToFile(pdf, outputPdf.string().c_str());
 
             if (st != HPDF_OK)
             {
                 std::cerr << "    Echec de sauvegarde du PDF (code "
-                          << st << ")
-";
+                          << st << ")\n";
                 success = false;
             }
             else if (skippedImages > 0)
             {
                 std::cerr << "    Attention : " << skippedImages
-                          << " image(s) ignoree(s)
-";
+                          << " image(s) ignoree(s)\n";
             }
         }
         else
         {
-            std::cerr << "    Aucune image utilisable.
-";
+            std::cerr << "    Aucune image utilisable.\n";
             success = false;
         }
     }

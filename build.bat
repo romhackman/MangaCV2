@@ -1,11 +1,13 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 cd /d "%~dp0"
 
 REM ==========================================================
-REM  Compilation de Manga Downloader (MinGW / g++)
-REM  Structure attendue :
-REM    include\  lib\  src\  workers\  dist\
+REM Compilation de Manga Downloader (MinGW / g++)
+REM Structure attendue :
+REM   include\  lib\  src\  workers\  dist\
+REM Dependances attendues dans lib\ :
+REM   SDL2, SDL2_ttf, libcurl, libharu (hpdf)
 REM ==========================================================
 
 set "CXX=g++"
@@ -15,14 +17,12 @@ set "LIBS=-Llib"
 if not exist dist mkdir dist
 if not exist dist\data\font mkdir dist\data\font
 
-REM Verifier la presence du compilateur
 where g++ >nul 2>nul
 if errorlevel 1 (
-    echo ERREUR : g++ est introuvable. Verifie ton installation MinGW.
+    echo ERREUR : g++ est introuvable. Installe MinGW-w64 et ajoute g++ au PATH.
     goto :error
 )
 
-REM Verifier les dossiers du projet
 if not exist src\app.cpp (
     echo ERREUR : src\app.cpp introuvable.
     goto :error
@@ -31,10 +31,26 @@ if not exist workers\domaine.cpp (
     echo ERREUR : workers\domaine.cpp introuvable.
     goto :error
 )
+if not exist workers\preprocess.cpp (
+    echo ERREUR : workers\preprocess.cpp introuvable.
+    goto :error
+)
+if not exist workers\scraper.cpp (
+    echo ERREUR : workers\scraper.cpp introuvable.
+    goto :error
+)
+if not exist workers\download.cpp (
+    echo ERREUR : workers\download.cpp introuvable.
+    goto :error
+)
+if not exist workers\pdf.cpp (
+    echo ERREUR : workers\pdf.cpp introuvable.
+    goto :error
+)
 
 echo.
 echo [1/6] Compilation de MangaDownloader.exe
-%CXX% %FLAGS% src\app.cpp %LIBS% -o dist\MangaDownloader.exe -lmingw32 -lSDL2main -lSDL2_ttf -lSDL2 -lole32 -lshell32 -luuid -mwindows
+%CXX% %FLAGS% src\app.cpp %LIBS% -lcurl -o dist\MangaDownloader.exe -lmingw32 -lSDL2main -lSDL2_ttf -lSDL2 -lole32 -lshell32 -luuid -lcomdlg32 -mwindows
 if errorlevel 1 goto :error
 
 echo.
@@ -67,13 +83,9 @@ echo ==========================================
 echo COMPILATION TERMINEE AVEC SUCCES
 echo ==========================================
 echo.
-echo Place la police dans :
-echo dist\data\font\yoruka.ttf
-echo.
-echo Place les DLL necessaires a cote des executables :
-echo SDL2.dll, SDL2_ttf.dll, libcurl et libhpdf
-echo.
-echo Lance : dist\MangaDownloader.exe
+echo Copie yoruka.ttf dans dist\data\font\
+echo Copie les DLL SDL2, SDL2_ttf, libcurl et libhpdf necessaires dans dist\
+echo Lance dist\MangaDownloader.exe
 echo.
 pause
 exit /b 0
@@ -82,7 +94,7 @@ exit /b 0
 echo.
 echo ==========================================
 echo ERREUR DE COMPILATION
-echo Verifie les chemins des fichiers et des bibliotheques.
+echo Verifie les chemins, les headers et les bibliotheques.
 echo ==========================================
 pause
 exit /b 1
