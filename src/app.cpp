@@ -49,7 +49,7 @@ using json = nlohmann::json;
 const int WINDOW_WIDTH  = 1000;
 const int WINDOW_HEIGHT = 700;
 
-const char* APP_VERSION = "v0.1.1";
+const char* APP_VERSION = "v0.1.0";
 
 const std::string SETTINGS_FILE = "settings.json";
 const std::string HERITAGE_FILE = "data/heritage.json";
@@ -716,25 +716,134 @@ std::vector<SearchResult> searchAnimeSamaDirect(const std::string& query)
     return out;
 }
 
-std::vector<SearchResult> fetchAnimeScanChoices(const std::string& animeUrl)
+std::string extractBaseUrl(const std::string& url)
+{
+    if (url.rfind("http://", 0) != 0 &&
+        url.rfind("https://", 0) != 0)
+        return {};
+
+    size_t start = url.find("://") + 3;
+    size_t end = url.find('/', start);
+
+    return end == std::string::npos
+        ? url
+        : url.substr(0, end);
+}
+
+std::string extractCatalogueIdentifier(const std::string& url)
+{
+    const std::string marker = "/catalogue/";
+    size_t start = url.find(marker);
+
+    if (start == std::string::npos)
+        return {};
+
+    start += marker.length();
+
+    size_t end = url.find('/', start);
+    if (end == std::string::npos)
+        end = url.length();
+
+    if (end <= start)
+        return {};
+
+    return url.substr(start, end - start);
+}
+
+std::vector<SearchResult> fetchAnimeScanChoices(
+    const std::string& animeUrl)
 {
     std::vector<SearchResult> out;
+
+    const std::string baseUrl = extractBaseUrl(animeUrl);
+    const std::string identifier =
+        extractCatalogueIdentifier(animeUrl);
+
+    if (baseUrl.empty() || identifier.empty())
+        return out;
+
+    // Récupération directe du HTML, sans API de recherche.
     const std::string html = fetchHtml(animeUrl);
-    if (html.empty()) return out;
-    const std::regex scanPattern(R"(panneauScan\s*\(\s*["']([^"']+)["']\s*,\s*["']([^"']+)["']\s*\))", std::regex_constants::icase);
-    for (auto it = std::sregex_iterator(html.begin(), html.end(), scanPattern); it != std::sregex_iterator(); ++it) {
-        std::string title = decodeBasicHtml((*it)[1].str());
-        std::string url = decodeBasicHtml((*it)[2].str());
-        if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) {
-            if (url.empty() || url.front() != '/') url = "/" + url;
-            url = ANIME_SAMA_BASE + url;
-        }
-        out.push_back({title, url, true});
-    }
-    std::vector<SearchResult> unique;
+    if (html.empty())
+        return out;
+
+    size_t pos = 0;
     std::unordered_set<std::string> seen;
-    for (const auto& item : out) if (seen.insert(item.url).second) unique.push_back(item);
-    return unique;
+
+    while (true)
+    {
+        pos = html.find("panneauScan(", pos);
+        if (pos == std::string::npos)
+            break;
+
+        size_t start = html.find('(', pos);
+        size_t end = html.find(')', start);
+
+        if (start == std::string::npos ||
+            end == std::string::npos)
+            break;
+
+        std::string args = html.substr(
+            start + 1, end - start - 1);
+
+        size_t comma = args.find(',');
+        if (comma != std::string::npos)
+        {
+            auto cleanQuotes = [](std::string s)
+            {
+                s = trim(s);
+
+                if (!s.empty() &&
+                    (s.front() == '"' || s.front() == '\''))
+                    s.erase(0, 1);
+
+                if (!s.empty() &&
+                    (s.back() == '"' || s.back() == '\''))
+                    s.pop_back();
+
+                return trim(s);
+            };
+
+            std::string name =
+                cleanQuotes(args.substr(0, comma));
+
+            std::string path =
+                cleanQuotes(args.substr(comma + 1));
+
+            if (path != "url" && !path.empty())
+            {
+                if (name.empty() || name == "nom")
+                    name = "Scans";
+
+                // Évite les doublons de panneaux.
+                if (seen.insert(path).second)
+                {
+                    // Même construction d'URL que dans
+                    // ton programme d'analyse HTML.
+                    while (!path.empty() &&
+                           path.front() == '/')
+                        path.erase(path.begin());
+
+                    std::string panelUrl =
+                        baseUrl + "/catalogue/" +
+                        identifier + "/" + path;
+
+                    if (!panelUrl.empty() && panelUrl.back() != '/')
+                        panelUrl += '/';
+
+                    out.push_back({
+                        name,
+                        panelUrl,
+                        true
+                    });
+                }
+            }
+        }
+
+        pos = end + 1;
+    }
+
+    return out;
 }
 
 // ==========================================================
