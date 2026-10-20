@@ -1,4 +1,4 @@
-# Manga Downloader
+# MangaCV2
 
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D6)
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus)
