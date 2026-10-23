@@ -1,5 +1,7 @@
 # MangaCV2
 
+![MangaCV2 Logo](https://github.com/romhackman/MangaCV2/blob/main/resources/logo_app.png?raw=true)
+
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D6)
 ![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus)
 ![SDL2](https://img.shields.io/badge/GUI-SDL2-2E2E2E)
