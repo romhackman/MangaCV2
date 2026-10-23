@@ -1,16 +1,14 @@
-# Manga Downloader
+# MangaCV2
+
+![Platform](https://img.shields.io/badge/platform-Windows-0078D6)
+![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus)
+![SDL2](https://img.shields.io/badge/GUI-SDL2-2E2E2E)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-v0.1.1-blue)
 
 Application Windows en C++ (interface SDL2) pour rechercher un manga, choisir ses chapitres, télécharger les images et créer un PDF par chapitre.
 
 > **Version :** v0.2.0 — un seul exécutable, interface réorganisée, code découpé en modules.
-
-## Sommaire
-
-1. [Fonctionnement](#1-fonctionnement)
-2. [Installation et compilation](#2-installation-et-compilation)
-3. [Utilisation](#3-utilisation)
-4. [Architecture du code](#4-architecture-du-code)
-5. [Dépannage](#5-dépannage)
 
 ---
 
